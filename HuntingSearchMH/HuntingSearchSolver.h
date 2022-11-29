@@ -19,31 +19,31 @@ struct HSParams
 struct HSResult 
 {
 	double m_FuncMin = 0.0f;
-	double x1 = 0.0f;
-	double x2 = 0.0f;
+	DecisionVars Solution;
 };
 
 class HuntingSearchSolver
 {
 public:
-	HuntingSearchSolver(const HSParams Params);
+	HuntingSearchSolver(const HSParams& Params);
 
-	HSResult Solve();
+	HSResult Solve(const HuntingSearchSpace& SearchSpace);
 
 private:
 	const HSParams m_SolverParams;
 
-	const HuntingSearchSpace m_SearchSpace;
-
 	static constexpr float Epsilon = 0.01f;
 
-	std::vector<std::pair<double, double>> InitializeHG();
+	std::vector<DecisionVars> InitializeHG(const HuntingSearchSpace& SearchSpace);
 
-	int GetLeadersIndex(const std::vector<std::pair<double, double>>& HG) const;
+	int GetLeadersIndex(
+		const std::vector<DecisionVars>& HG, const HuntingSearchSpace& SearchSpace) const;
 
-	void GetBestAndWorstHunters(const std::vector<std::pair<double, double>>& HG, int& Best, int& Worst) const;
+	void GetBestAndWorstHunters(
+		const std::vector<DecisionVars>& HG, const HuntingSearchSpace& SearchSpace, int& Best, int& Worst) const;
 
-	double MoveDeciesionVar(const double VarValue, const double LeadersVarValue) const;
+	double MoveDeciesionVar(
+		const double VarValue, const double LeadersVarValue, int VarIndex, const HuntingSearchSpace& SearchSpace) const;
 
 	static double RandomFloat();
 };

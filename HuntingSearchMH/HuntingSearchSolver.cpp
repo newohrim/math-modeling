@@ -5,15 +5,13 @@
 #include <algorithm>
 #include <cmath>
 
-HuntingSearchSolver::HuntingSearchSolver(const HSParams Params)
-	: m_SolverParams(Params), m_SearchSpace() {  }
+HuntingSearchSolver::HuntingSearchSolver(const HSParams& Params)
+	: m_SolverParams(Params) {  }
 
-HSResult HuntingSearchSolver::Solve()
+HSResult HuntingSearchSolver::Solve(const HuntingSearchSpace& SearchSpace)
 {
-	HSResult Result;
-
 	// HG init
-	std::vector<std::pair<double, double>> HG = InitializeHG();
+	std::vector<DecisionVars> HG = InitializeHG(SearchSpace);
 
 	int EpochesBefore = 0;
 	int Iter = 10000;
@@ -22,7 +20,7 @@ HSResult HuntingSearchSolver::Solve()
 	while (Iter-- > 0) // TODO: add Epsilon termination criterion
 	{
 		// Move hunters
-		LeaderIndex = GetLeadersIndex(HG);
+		LeaderIndex = GetLeadersIndex(HG, SearchSpace);
 		for (int i = 0; i < HG.size(); ++i) 
 		{
 			if (i == LeaderIndex) 
@@ -30,76 +28,60 @@ HSResult HuntingSearchSolver::Solve()
 				continue;
 			}
 
-			const double TempVarX1 = MoveDeciesionVar(HG[i].first, HG[LeaderIndex].first);
-			const double TempVarX2 = MoveDeciesionVar(HG[i].second, HG[LeaderIndex].second);
-			if (m_SearchSpace.Calculate_ObjectiveFuncConstrained(TempVarX1, TempVarX2) <
-				m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i].first, HG[i].second)) 
+			DecisionVars NewVector(SearchSpace.m_DecisionVarsCount);
+			for (int j = 0; j < NewVector.size(); ++j) 
 			{
-				HG[i].first = TempVarX1;
-				HG[i].second = TempVarX2;
+				NewVector[j] = MoveDeciesionVar(HG[i][j], HG[LeaderIndex][j], j, SearchSpace);
+			}
+			if (SearchSpace.Calculate_ObjectiveFuncConstrained(NewVector) <
+				SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i]))
+			{
+				HG[i] = NewVector;
 			}
 		}
-		LeaderIndex = GetLeadersIndex(HG);
+		LeaderIndex = GetLeadersIndex(HG, SearchSpace);
 
 		// Position correction
 		for (int i = 0; i < HG.size(); ++i) 
 		{
 			if (i == LeaderIndex)
 				continue;
-			srand(time(0) * i);
-			double NewX1, NewX2;
-			float RandValue = RandomFloat();
-			if (RandValue <= m_SolverParams.m_HGCR) 
+			DecisionVars NewVector(SearchSpace.m_DecisionVarsCount);
+			for (int j = 0; j < NewVector.size(); ++j) 
 			{
-				srand(time(0) * i);
-				NewX1 = HG[rand() % HG.size()].first;
+				srand(time(0) * (i + 1) * (j + 1));
+				float RandValue = RandomFloat();
+				if (RandValue <= m_SolverParams.m_HGCR)
+				{
+					srand(time(0) * (i + 1) * (j + 1) + 1);
+					NewVector[j] = HG[rand() % HG.size()][j];
+				}
+				else
+				{
+					srand(time(0) * (i + 1) * (j + 1) + 1);
+					// TODO: add RA value reduction
+					NewVector[j] = HG[i][j] + ((rand() % 2) * 2 - 1) * m_SolverParams.m_RaMax;
+				}
+				NewVector[j] = SearchSpace.ClampByDesignSpace(NewVector[j], j);
 			}
-			else 
+			if (SearchSpace.Calculate_ObjectiveFuncConstrained(NewVector) <
+				SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i]))
 			{
-				srand(time(0) * i);
-				// TODO: add RA value reduction
-				NewX1 = HG[i].first + ((rand() % 2) * 2 - 1) * m_SolverParams.m_RaMax;
-			}
-			srand(time(0) * i);
-			RandValue = RandomFloat();
-			if (RandValue <= m_SolverParams.m_HGCR)
-			{
-				srand(time(0) * i);
-				NewX2 = HG[rand() % HG.size()].second;
-			}
-			else
-			{
-				srand(time(0) * i);
-				// TODO: add RA value reduction
-				NewX2 = HG[i].second + ((rand() % 2) * 2 - 1) * m_SolverParams.m_RaMax;
-			}
-			if (NewX1 < 0.0f)
-				NewX1 = 0.0f;
-			if (NewX1 > 6.0f)
-				NewX1 = 6.0f;
-			if (NewX1 < 0.0f)
-				NewX1 = 0.0f;
-			if (NewX1 > 6.0f)
-				NewX1 = 6.0f;
-			if (m_SearchSpace.Calculate_ObjectiveFuncConstrained(NewX1, NewX2) <
-				m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i].first, HG[i].second))
-			{
-				HG[i].first = NewX1;
-				HG[i].second = NewX2;
+				HG[i] = NewVector;
 			}
 		}
-		LeaderIndex = GetLeadersIndex(HG);
+		LeaderIndex = GetLeadersIndex(HG, SearchSpace);
 
-		if (m_SearchSpace.AreValidArguments(HG[LeaderIndex].first, HG[LeaderIndex].second) && 
+		if (SearchSpace.AreValidArguments(HG[LeaderIndex]) &&
 			(Iter == 0 || EpochesBefore >= m_SolverParams.m_NumberOfEpochs))
 			break;
 
 		// Reorganize HG
 		int Worst;
-		GetBestAndWorstHunters(HG, LeaderIndex, Worst);
+		GetBestAndWorstHunters(HG, SearchSpace, LeaderIndex, Worst);
 		const double MaxDiff = std::abs(
-			m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[LeaderIndex].first, HG[LeaderIndex].second) - 
-			m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[Worst].first, HG[Worst].second));
+			SearchSpace.Calculate_ObjectiveFuncConstrained(HG[LeaderIndex]) - 
+			SearchSpace.Calculate_ObjectiveFuncConstrained(HG[Worst]));
 		if (MaxDiff < Epsilon || ++IterPerEpoch >= m_SolverParams.m_IterationPerEpoch) 
 		{
 			for (int i = 0; i < HG.size(); ++i) 
@@ -107,32 +89,26 @@ HSResult HuntingSearchSolver::Solve()
 				// TODO: make design space constraints vars
 				if (i == LeaderIndex)
 					continue;
-				srand(time(0) * i);
-				double NewX1, NewX2;
-				NewX1 = HG[LeaderIndex].first +
-					((rand() % 2) * 2 - 1) * RandomFloat() *
-					6 * m_SolverParams.m_ReorgAlpha * std::exp(-m_SolverParams.m_ReorgBeta * EpochesBefore);
-				srand(time(0) * i + 1);
-				NewX2 = HG[LeaderIndex].second +
-					((rand() % 2) * 2 - 1) * RandomFloat() *
-					6 * m_SolverParams.m_ReorgAlpha * std::exp(-m_SolverParams.m_ReorgBeta * EpochesBefore);
-				if (NewX1 < 0.0f)
-					NewX1 = 0.0f;
-				if (NewX1 > 6.0f)
-					NewX1 = 6.0f;
-				if (NewX1 < 0.0f)
-					NewX1 = 0.0f;
-				if (NewX1 > 6.0f)
-					NewX1 = 6.0f;
-				HG[i].first = NewX1;
-				HG[i].second = NewX2;
+				DecisionVars NewVector(SearchSpace.m_DecisionVarsCount);
+				for (int j = 0; j < NewVector.size(); ++j) 
+				{
+					srand(time(0) * (i + 1) * (j + 1));
+					const double temp = ((rand() % 2) * 2 - 1) * RandomFloat() *
+						(SearchSpace.m_DesignSpace[j].second - SearchSpace.m_DesignSpace[j].first) * 
+						m_SolverParams.m_ReorgAlpha * std::exp(-m_SolverParams.m_ReorgBeta * EpochesBefore);
+					NewVector[j] = HG[LeaderIndex][j] +
+						temp;
+					NewVector[j] = SearchSpace.ClampByDesignSpace(NewVector[j], j);
+				}
+				HG[i] = NewVector;
 			}
 			EpochesBefore++;
+			SearchSpace.Calculate_ObjectiveFunc(HG[LeaderIndex]); // Temp
 			IterPerEpoch = 0;
-			GetBestAndWorstHunters(HG, LeaderIndex, Worst);
+			GetBestAndWorstHunters(HG, SearchSpace, LeaderIndex, Worst);
 			const double MaxDiff2 = std::abs(
-				m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[LeaderIndex].first, HG[LeaderIndex].second) -
-				m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[Worst].first, HG[Worst].second));
+				SearchSpace.Calculate_ObjectiveFuncConstrained(HG[LeaderIndex]) -
+				SearchSpace.Calculate_ObjectiveFuncConstrained(HG[Worst]));
 			if (MaxDiff2 < Epsilon) 
 			{
 				break;
@@ -140,33 +116,40 @@ HSResult HuntingSearchSolver::Solve()
 		}
 	}
 
+	HSResult Result;
 	Result.m_FuncMin = 
-		m_SearchSpace.Calculate_ObjectiveFunc(HG[LeaderIndex].first, HG[LeaderIndex].second);
-	Result.x1 = HG[LeaderIndex].first;
-	Result.x2 = HG[LeaderIndex].second;
+		SearchSpace.f_ObjectiveFunc(HG[LeaderIndex]);
+	Result.Solution = HG[LeaderIndex];
 
 	return Result;
 }
 
-std::vector<std::pair<double, double>> HuntingSearchSolver::InitializeHG()
+std::vector<DecisionVars> HuntingSearchSolver::InitializeHG(
+	const HuntingSearchSpace& SearchSpace)
 {
-	std::vector<std::pair<double, double>> HG(m_SolverParams.m_HGSize);
+	std::vector<DecisionVars> HG(m_SolverParams.m_HGSize);
 	for (int i = 0; i < HG.size(); ++i) 
 	{
-		srand(time(0) * i);
-		HG[i] = { RandomFloat() * 6.0f, RandomFloat() * 6.0f };
+		HG[i] = DecisionVars(SearchSpace.m_DecisionVarsCount);
+		for (int j = 0; j < HG[i].size(); ++j) 
+		{
+			srand(time(0) * (i + 1) * (j + 1));
+			HG[i][j] = RandomFloat() * std::abs(
+				SearchSpace.m_DesignSpace[j].second - SearchSpace.m_DesignSpace[j].first);
+		}
 	}
 
 	return HG;
 }
 
-int HuntingSearchSolver::GetLeadersIndex(const std::vector<std::pair<double, double>>& HG) const
+int HuntingSearchSolver::GetLeadersIndex(
+	const std::vector<DecisionVars>& HG, const HuntingSearchSpace& SearchSpace) const
 {
 	int LeaderIndex = 0;
 	double MinFuncValue = std::numeric_limits<double>::max();
 	for (int i = 0; i < HG.size(); ++i) 
 	{
-		const double FuncValue = m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i].first, HG[i].second);
+		const double FuncValue = SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i]);
 		if (FuncValue < MinFuncValue)
 		{
 			MinFuncValue = FuncValue;
@@ -177,7 +160,8 @@ int HuntingSearchSolver::GetLeadersIndex(const std::vector<std::pair<double, dou
 	return LeaderIndex;
 }
 
-void HuntingSearchSolver::GetBestAndWorstHunters(const std::vector<std::pair<double, double>>& HG, int& Best, int& Worst) const
+void HuntingSearchSolver::GetBestAndWorstHunters(
+	const std::vector<DecisionVars>& HG, const HuntingSearchSpace& SearchSpace, int& Best, int& Worst) const
 {
 	Best = 0;
 	Worst = 0;
@@ -185,7 +169,7 @@ void HuntingSearchSolver::GetBestAndWorstHunters(const std::vector<std::pair<dou
 	double MaxFuncValue = std::numeric_limits<double>::min();
 	for (int i = 0; i < HG.size(); ++i)
 	{
-		const double FuncValue = m_SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i].first, HG[i].second);
+		const double FuncValue = SearchSpace.Calculate_ObjectiveFuncConstrained(HG[i]);
 		if (FuncValue < MinFuncValue)
 		{
 			MinFuncValue = FuncValue;
@@ -199,18 +183,19 @@ void HuntingSearchSolver::GetBestAndWorstHunters(const std::vector<std::pair<dou
 	}
 }
 
-double HuntingSearchSolver::MoveDeciesionVar(const double VarValue, const double LeadersVarValue) const
+inline double HuntingSearchSolver::MoveDeciesionVar(
+	const double VarValue, const double LeadersVarValue, int VarIndex, const HuntingSearchSpace& SearchSpace) const
 {
 	const double Result = VarValue + RandomFloat() * m_SolverParams.m_MML * (LeadersVarValue - VarValue);
-	if (Result < 0.0f)
-		return 0.0f;
-	if (Result > 6.0f)
-		return 6.0f;
+	if (Result < SearchSpace.m_DesignSpace[VarIndex].first)
+		return SearchSpace.m_DesignSpace[VarIndex].first;
+	if (Result > SearchSpace.m_DesignSpace[VarIndex].second)
+		return SearchSpace.m_DesignSpace[VarIndex].second;
 
 	return Result;
 }
 
-double HuntingSearchSolver::RandomFloat()
+inline double HuntingSearchSolver::RandomFloat()
 {
 	return (double)rand() / RAND_MAX;
 }
