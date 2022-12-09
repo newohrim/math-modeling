@@ -24,8 +24,8 @@ double G2(DecisionVars X)
 	const double a = X[0];
 	const double b = X[1] - 2.5f;
 
-	// negated cause <= 0
-	return -(a * a + b * b - 4.84f);
+	// >= 0
+	return a * a + b * b - 4.84f;
 }
 
 int main() 
@@ -52,7 +52,7 @@ int main()
 		{0.0f, 6.0f}, // x1 space
 		{0.0f, 6.0f}  // x2 space
 	};
-	const HSResult Result = Solver.Solve(SearchSpace);
+	const HSResult Result = Solver.Solve(SearchSpace, "output.txt");
 
 	return 0;
 }
